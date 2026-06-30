@@ -180,7 +180,6 @@ SUMMARY_HEADERS = ["财务大类", "品牌", "补贴金额合计", "补贴金额
 @dataclass(frozen=True)
 class ProcessingProfile:
     name: str
-    merchant_id: str
     output_filename: str
     detail_headers: tuple[str, ...]
     optional_headers: frozenset[str]
@@ -193,7 +192,6 @@ class ProcessingProfile:
 PROFILES = {
     "1": ProcessingProfile(
         name="家电",
-        merchant_id="89813015722APT1",
         output_filename="家电回款明细.xlsx",
         detail_headers=APPLIANCE_DETAIL_HEADERS,
         optional_headers=frozenset({"发票金额"}),
@@ -204,7 +202,6 @@ PROFILES = {
     ),
     "2": ProcessingProfile(
         name="数码",
-        merchant_id="89813014812B06R",
         output_filename="数码回款明细.xlsx",
         detail_headers=DIGITAL_DETAIL_HEADERS,
         optional_headers=frozenset(),
@@ -343,7 +340,12 @@ def _get_source_positions(
 
 
 def _write_normalized_detail(
-    source, target, *, write_header: bool, profile: ProcessingProfile
+    source,
+    target,
+    *,
+    write_header: bool,
+    profile: ProcessingProfile,
+    merchant_id: str,
 ) -> tuple[int, int]:
     source_positions: dict[str, int] = {}
     written_rows = 0
@@ -366,8 +368,8 @@ def _write_normalized_detail(
             row[source_positions[name]] if name in source_positions else None
             for name in profile.detail_headers
         ]
-        merchant_id = normalized[merchant_index]
-        if str(merchant_id).strip() == profile.merchant_id:
+        row_merchant_id = normalized[merchant_index]
+        if str(row_merchant_id).strip() == merchant_id:
             encoded_category = normalized[category_index]
             financial_category = profile.category_map.get(encoded_category)
             if financial_category is None:
@@ -651,7 +653,9 @@ def _replace_output(temporary: Path, final_path: Path) -> None:
             time.sleep(0.5)
 
 
-def process_workbook(path: Path, profile: ProcessingProfile) -> Path:
+def process_workbook(
+    path: Path, profile: ProcessingProfile, merchant_id: str
+) -> Path:
     """Stream normalized data from one working copy into the final workbook."""
     source_book = load_workbook(path, read_only=True, data_only=False)
     target_book = Workbook()
@@ -674,6 +678,7 @@ def process_workbook(path: Path, profile: ProcessingProfile) -> Path:
                     merged_sheet,
                     write_header=not merged_header_written,
                     profile=profile,
+                    merchant_id=merchant_id,
                 )
                 merged_rows += written_rows
                 unidentified_brands += missing_brands
@@ -704,7 +709,7 @@ def process_workbook(path: Path, profile: ProcessingProfile) -> Path:
         _remove_working_copy(path)
     print(
         f"已处理{profile.name}明细：{final_path.relative_to(BASE_DIR)}，"
-        f"商户 {profile.merchant_id} 共 {merged_rows} 条，"
+        f"商户 {merchant_id} 共 {merged_rows} 条，"
         f"品牌推断 {inferred_brands} 条、未识别 {unidentified_brands} 条，"
         f"汇总 {summary_groups} 组、合并财务大类 {merged_categories} 组，"
         f"字体 {output_font}"
@@ -722,21 +727,30 @@ def _parse_input_path(raw_path: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
-def _prompt_for_job() -> tuple[ProcessingProfile, Path]:
+def _prompt_for_merchant_id() -> str:
+    while True:
+        merchant_id = input("请输入要筛选的商户编号：").strip()
+        if merchant_id:
+            return merchant_id
+        print("商户编号不能为空，请重新输入。")
+
+
+def _prompt_for_job() -> tuple[ProcessingProfile, str, Path]:
     print("请选择数据类型：")
     print("1. 家电")
     print("2. 数码")
     choice = input("请输入序号：").strip()
     if choice not in PROFILES:
         raise ValueError("数据类型无效，请输入 1 或 2")
+    merchant_id = _prompt_for_merchant_id()
     source = _parse_input_path(input("请输入原始数据文件地址："))
-    return PROFILES[choice], source
+    return PROFILES[choice], merchant_id, source
 
 
 def main() -> None:
-    profile, source = _prompt_for_job()
+    profile, merchant_id, source = _prompt_for_job()
     working_copy = convert_source_to_xlsx(source)
-    final_path = process_workbook(working_copy, profile)
+    final_path = process_workbook(working_copy, profile, merchant_id)
     print(f"处理完成：{final_path}")
 
 
