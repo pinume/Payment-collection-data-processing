@@ -8,7 +8,7 @@ import stat
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import ceil
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -301,7 +301,8 @@ def _remove_working_copy(path: Path) -> None:
 
 def _iter_actual_rows(worksheet, max_column: int):
     """Yield actual rows and discard the source's trailing maximum-range formatting."""
-    worksheet.reset_dimensions()
+    if hasattr(worksheet, "reset_dimensions"):
+        worksheet.reset_dimensions()
     pending_empty: list[tuple] = []
     for row in worksheet.iter_rows(
         min_col=1, max_col=max_column, values_only=True
@@ -317,68 +318,71 @@ def _iter_actual_rows(worksheet, max_column: int):
                 break
 
 
+def _get_source_positions(
+    row: tuple, sheet_name: str, profile: ProcessingProfile
+) -> dict[str, int]:
+    """Normalize and validate one source header row."""
+    headers = [
+        HEADER_ALIASES.get(value, value) if value is not None else ""
+        for value in row
+    ]
+    header_counts = Counter(name for name in headers if name)
+    duplicates = sorted(name for name, count in header_counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"工作表 {sheet_name!r} 存在重复表头：{duplicates}")
+
+    positions = {name: index for index, name in enumerate(headers) if name}
+    missing = [
+        name
+        for name in profile.detail_headers
+        if name not in profile.optional_headers and name not in positions
+    ]
+    if missing:
+        raise ValueError(f"工作表 {sheet_name!r} 缺少字段：{missing}")
+    return positions
+
+
 def _write_normalized_detail(
     source, target, *, write_header: bool, profile: ProcessingProfile
 ) -> tuple[int, int]:
-    source_headers: list[str] | None = None
     source_positions: dict[str, int] = {}
     written_rows = 0
     unidentified_brands = 0
+    merchant_index = profile.detail_headers.index("商户编号")
+    category_index = profile.detail_headers.index("编码品类")
+    product_index = profile.detail_headers.index("商品名称")
 
     for row in _iter_actual_rows(source, max(20, len(profile.detail_headers))):
-        if source_headers is None and "拨付批次" in row:
-            source_headers = [
-                HEADER_ALIASES.get(value, value) if value is not None else ""
-                for value in row
-            ]
-            duplicates = {
-                name for name in source_headers if name and source_headers.count(name) > 1
-            }
-            if duplicates:
-                raise ValueError(
-                    f"工作表 {source.title!r} 存在重复表头：{sorted(duplicates)}"
-                )
-            source_positions = {
-                name: index for index, name in enumerate(source_headers) if name
-            }
-            missing = [
-                name
-                for name in profile.detail_headers
-                if name not in profile.optional_headers and name not in source_positions
-            ]
-            if missing:
-                raise ValueError(f"工作表 {source.title!r} 缺少字段：{missing}")
+        if not source_positions and "拨付批次" in row:
+            source_positions = _get_source_positions(row, source.title, profile)
             if write_header:
                 target.append(profile.detail_headers + DERIVED_HEADERS)
             continue
 
-        if source_headers is None:
-            target.append(row)
+        if not source_positions:
             continue
 
         normalized = [
             row[source_positions[name]] if name in source_positions else None
             for name in profile.detail_headers
         ]
-        merchant_id = normalized[profile.detail_headers.index("商户编号")]
+        merchant_id = normalized[merchant_index]
         if str(merchant_id).strip() == profile.merchant_id:
-            encoded_category = normalized[
-                profile.detail_headers.index("编码品类")
-            ]
+            encoded_category = normalized[category_index]
             financial_category = profile.category_map.get(encoded_category)
             if financial_category is None:
                 raise ValueError(
                     f"工作表 {source.title!r} 存在未配置的编码品类："
                     f"{encoded_category!r}"
                 )
-            product_name = normalized[profile.detail_headers.index("商品名称")]
+            product_name = normalized[product_index]
             brand = _extract_brand(product_name, profile)
             if brand is None:
                 unidentified_brands += 1
             target.append(normalized + [financial_category, brand])
             written_rows += 1
 
-    if source_headers is None:
+    if not source_positions:
         raise ValueError(f"工作表 {source.title!r} 未找到明细表头")
     return written_rows, unidentified_brands
 
@@ -569,7 +573,7 @@ def _build_summary_sheet(
         if subsidy not in (None, ""):
             try:
                 subsidy_amount = Decimal(str(subsidy))
-            except Exception as error:
+            except (InvalidOperation, ValueError) as error:
                 raise ValueError(f"整合明细第 {row} 行补贴金额不是有效数值") from error
             groups[key][0] += subsidy_amount
             groups[key][1] += -1 if subsidy_amount < 0 else 1
