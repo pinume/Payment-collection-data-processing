@@ -90,6 +90,7 @@ DIGITAL_DETAIL_HEADERS = (
 DERIVED_HEADERS = ("财务大类", "品牌")
 APPLIANCE_CATEGORY_MAP = {
     "A04-空调": "空调",
+    "A05-电脑": "电脑",
     "A06-热水器": "厨卫",
     "A01-电视机": "电视",
     "A03-洗衣机": "洗衣机",
@@ -101,6 +102,8 @@ DIGITAL_CATEGORY_MAP = {
     "B03-智能手表手环": "智能穿戴",
 }
 APPLIANCE_BRAND_KEYWORDS = (
+    ("华为", ("华为", "HUAWEI", "MATEBOOK")),
+    ("小米", ("小米", "XIAOMI", "REDMI", "米家", "MIJIA")),
     ("A.O.史密斯", ("A.O.史密斯", "AO史密斯")),
     ("卡萨帝", ("卡萨帝", "CASARTE")),
     ("小天鹅", ("小天鹅",)),
@@ -118,6 +121,28 @@ APPLIANCE_BRAND_KEYWORDS = (
     ("海尔", ("海尔",)),
     ("美的", ("美的", "MIDEA")),
     ("海信", ("海信",)),
+    ("康佳", ("康佳", "KONKA")),
+    ("三星", ("三星", "SAMSUNG")),
+    ("索尼", ("索尼", "SONY")),
+    ("LG", ("LG ",)),
+    ("东芝", ("东芝", "TOSHIBA")),
+    ("松下", ("松下", "PANASONIC")),
+    ("长虹", ("长虹", "CHANGHONG")),
+    ("容声", ("容声", "RONSHEN")),
+    ("夏普", ("夏普", "SHARP")),
+    ("飞利浦", ("飞利浦", "PHILIPS")),
+    ("林内", ("林内", "RINNAI")),
+    ("澳柯玛", ("澳柯玛", "AUCMA")),
+    ("日立", ("日立", "HITACHI")),
+    ("荣耀", ("荣耀", "HONOR")),
+    ("苹果", ("苹果", "APPLE", "MACBOOK", "MAC MINI")),
+    ("惠普", ("惠普", "HP ", "OMEN ", "VICTUS ")),
+    ("联想", ("联想", "LENOVO", "THINKBOOK", "小新")),
+    ("华硕", ("华硕", "ASUS")),
+    ("戴尔", ("戴尔", "DELL")),
+    ("帅康", ("帅康", "SACON")),
+    ("万和", ("万和", "VANWARD")),
+    ("方太", ("方太", "FOTILE")),
     ("创维", ("创维",)),
     ("科龙", ("科龙",)),
     ("博世", ("博世",)),
@@ -161,9 +186,37 @@ APPLIANCE_BRAND_NORMALIZATION_MAP = {
     "华凌": "美的",
     "晶弘": "格力",
 }
+MIDEA_GROUP_CATEGORIES = {"洗衣机", "冰箱"}
+MIDEA_GROUP_BRANDS = {"美的", "小天鹅", "东芝"}
 APPLIANCE_BRAND_MODEL_ALIASES = {
     "TNDD20-08AIDE": "小天鹅",
     "65A6Q": "海信",
+    "85A6Q": "海信",
+    "KFR-50GW/CX2S": "美的",
+    "NR-D521CG-W": "松下",
+    "NR-D531AX-S": "松下",
+    "NR-W592CG-S": "松下",
+    "WV20G-H": "海信",
+    "WV20W": "海信",
+    "WH130U9Q-1": "海信",
+    "WH130U9Q": "海信",
+    "DSF-60D956": "帅康",
+    "DSF-60J925": "帅康",
+    "自然风 双出风": "小米",
+    "自然风PRO 双出风": "小米",
+    "柔风（1.5匹/变频/新一级能效）": "小米",
+    "KFRD-72FW/C3AA1": "海信",
+    "D60-H7C1": "万家乐",
+    "D60-S3C2": "万家乐",
+    "新风PRO 双出风": "小米",
+    "超净洗 洗烘10KG银灰": "小米",
+    "自然风（1.5匹/变频/一级能效）白色": "小米",
+    "GMV舒韵家庭中央空调": "格力",
+    "自然风（2匹//变频/新一级能效）": "小米",
+    "DSF-60DY6(E)": "帅康",
+    "D60-G5C1": "万家乐",
+    "超净洗 滚筒10KG 银灰": "小米",
+    "精护洗PRO 洗烘10KG": "小米",
 }
 MODEL_TOKEN_PATTERN = re.compile(
     r"(?=[A-Z0-9._/+\-]*\d)[A-Z0-9]+(?:[._/+\-][A-Z0-9]+)*",
@@ -379,6 +432,7 @@ def _write_normalized_detail(
                 )
             product_name = normalized[product_index]
             brand = _extract_brand(product_name, profile)
+            brand = _normalize_financial_brand(brand, financial_category)
             if brand is None:
                 unidentified_brands += 1
             target.append(normalized + [financial_category, brand])
@@ -402,6 +456,17 @@ def _extract_brand(
         if model.casefold() in normalized_name:
             return profile.brand_normalization_map.get(brand, brand)
     return None
+
+
+def _normalize_financial_brand(
+    brand: str | None, financial_category: str
+) -> str | None:
+    if (
+        financial_category in MIDEA_GROUP_CATEGORIES
+        and brand in MIDEA_GROUP_BRANDS
+    ):
+        return "美的系"
+    return brand
 
 
 def _extract_model_tokens(product_name) -> set[str]:
