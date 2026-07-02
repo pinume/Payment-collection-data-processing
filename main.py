@@ -228,6 +228,7 @@ FALLBACK_FONT = "微软雅黑"
 FONT_SIZE = 11
 PIXEL_SAFETY_FACTOR = 1.25
 SUMMARY_HEADERS = ["财务大类", "品牌", "补贴金额合计", "补贴金额计数"]
+DETAIL_SORT_HEADERS = ("财务大类", "品牌", "交易时间", "交易订单号", "交易参考号")
 
 
 @dataclass(frozen=True)
@@ -518,6 +519,71 @@ def _infer_missing_brands_from_existing_rows(worksheet) -> int:
     return inferred
 
 
+def _category_order(category_map: dict[str, str]) -> dict[str, int]:
+    return {
+        category: index
+        for index, category in enumerate(dict.fromkeys(category_map.values()))
+    }
+
+
+def _sort_scalar(value) -> tuple[int, str]:
+    """Return a type-stable scalar sort key for worksheet values."""
+    if value in (None, ""):
+        return (1, "")
+    if hasattr(value, "isoformat") and not isinstance(value, str):
+        return (0, value.isoformat())
+    return (0, str(value).strip())
+
+
+def _sort_detail_sheet(worksheet, category_map: dict[str, str]) -> int:
+    """Sort 整合明细 by 财务大类、品牌、交易时间, then IDs for deterministic output."""
+    data_row_count = max(worksheet.max_row - 1, 0)
+    if data_row_count <= 1:
+        return data_row_count
+
+    header_positions = {
+        cell.value: cell.column for cell in worksheet[1] if cell.value not in (None, "")
+    }
+    missing = [header for header in DETAIL_SORT_HEADERS if header not in header_positions]
+    if missing:
+        raise ValueError(f"整合明细缺少排序字段：{missing}")
+
+    category_column = header_positions["财务大类"] - 1
+    brand_column = header_positions["品牌"] - 1
+    transaction_time_column = header_positions["交易时间"] - 1
+    order_column = header_positions["交易订单号"] - 1
+    reference_column = header_positions["交易参考号"] - 1
+    category_order = _category_order(category_map)
+
+    rows = [
+        (
+            row_index,
+            [worksheet.cell(row_index, column).value for column in range(1, worksheet.max_column + 1)],
+        )
+        for row_index in range(2, worksheet.max_row + 1)
+    ]
+
+    sorted_rows = sorted(
+        rows,
+        key=lambda item: (
+            category_order.get(
+                str(item[1][category_column]),
+                len(category_order),
+            ),
+            _sort_scalar(item[1][brand_column]),
+            _sort_scalar(item[1][transaction_time_column]),
+            _sort_scalar(item[1][order_column]),
+            _sort_scalar(item[1][reference_column]),
+            item[0],
+        ),
+    )
+
+    for target_row, (_, values) in enumerate(sorted_rows, 2):
+        for column, value in enumerate(values, 1):
+            worksheet.cell(target_row, column).value = value
+    return data_row_count
+
+
 def _select_output_font() -> tuple[str, Path | None]:
     """Return the requested font family and its regular font file when available."""
     if os.name == "nt":
@@ -645,10 +711,7 @@ def _build_summary_sheet(
             groups[key][0] += subsidy_amount
             groups[key][1] += -1 if subsidy_amount < 0 else 1
 
-    category_order = {
-        category: index
-        for index, category in enumerate(dict.fromkeys(category_map.values()))
-    }
+    category_order = _category_order(category_map)
     summary_sheet.append(SUMMARY_HEADERS)
     for (category, brand), (amount, count) in sorted(
         groups.items(),
@@ -752,6 +815,7 @@ def process_workbook(
             raise ValueError(f"工作簿 {path.name!r} 中没有可整合的明细 Sheet")
         inferred_brands = _infer_missing_brands_from_existing_rows(merged_sheet)
         unidentified_brands -= inferred_brands
+        sorted_detail_rows = _sort_detail_sheet(merged_sheet, profile.category_map)
         if "汇总" not in target_book.sheetnames:
             summary_sheet = target_book.create_sheet("汇总", 0)
         else:
@@ -776,6 +840,7 @@ def process_workbook(
         f"已处理{profile.name}明细：{final_path.relative_to(BASE_DIR)}，"
         f"商户 {merchant_id} 共 {merged_rows} 条，"
         f"品牌推断 {inferred_brands} 条、未识别 {unidentified_brands} 条，"
+        f"明细排序 {sorted_detail_rows} 条，"
         f"汇总 {summary_groups} 组、合并财务大类 {merged_categories} 组，"
         f"字体 {output_font}"
     )
