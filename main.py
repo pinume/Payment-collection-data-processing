@@ -228,7 +228,7 @@ FALLBACK_FONT = "微软雅黑"
 FONT_SIZE = 11
 PIXEL_SAFETY_FACTOR = 1.25
 SUMMARY_HEADERS = ["财务大类", "品牌", "补贴金额合计", "补贴金额计数"]
-DETAIL_SORT_HEADERS = ("财务大类", "品牌", "交易时间", "交易订单号", "交易参考号")
+DETAIL_SORT_HEADERS = ("财务大类", "品牌", "交易时间", "商品名称")
 
 
 @dataclass(frozen=True)
@@ -536,7 +536,7 @@ def _sort_scalar(value) -> tuple[int, str]:
 
 
 def _sort_detail_sheet(worksheet, category_map: dict[str, str]) -> int:
-    """Sort 整合明细 by 财务大类、品牌、交易时间, then IDs for deterministic output."""
+    """Sort 整合明细 by 财务大类、品牌、交易时间、商品名称."""
     data_row_count = max(worksheet.max_row - 1, 0)
     if data_row_count <= 1:
         return data_row_count
@@ -551,8 +551,7 @@ def _sort_detail_sheet(worksheet, category_map: dict[str, str]) -> int:
     category_column = header_positions["财务大类"] - 1
     brand_column = header_positions["品牌"] - 1
     transaction_time_column = header_positions["交易时间"] - 1
-    order_column = header_positions["交易订单号"] - 1
-    reference_column = header_positions["交易参考号"] - 1
+    product_column = header_positions["商品名称"] - 1
     category_order = _category_order(category_map)
 
     rows = [
@@ -572,8 +571,7 @@ def _sort_detail_sheet(worksheet, category_map: dict[str, str]) -> int:
             ),
             _sort_scalar(item[1][brand_column]),
             _sort_scalar(item[1][transaction_time_column]),
-            _sort_scalar(item[1][order_column]),
-            _sort_scalar(item[1][reference_column]),
+            _sort_scalar(item[1][product_column]),
             item[0],
         ),
     )
