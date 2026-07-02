@@ -1,6 +1,6 @@
 ---
 name: payment-collection-data-processing
-description: Process Chinese appliance and digital subsidy payment-collection files into normalized merchant-filtered Excel detail and summary workbooks. Use when Codex needs to maintain, run, diagnose, or extend this repository's data conversion, category mapping, brand recognition, aggregation, or workbook formatting rules.
+description: Process Chinese appliance and digital subsidy payment-collection files into normalized merchant-filtered Excel detail and summary workbooks. Use when Codex needs to maintain, run, diagnose, or extend this repository's data conversion, category mapping, brand recognition, aggregation, detail sorting, or workbook formatting rules.
 ---
 
 # 回款数据处理工具
@@ -70,8 +70,9 @@ uv run python main.py
 3. 各明细 Sheet 按对应数据类型统一表头和列顺序。
 4. 程序筛选指定商户，并将全部有效明细纵向合并至 `整合明细` Sheet。
 5. 程序补充 `财务大类` 和 `品牌` 字段。
-6. 程序清空并重建 `汇总` Sheet。
-7. 程序应用统一格式并写入最终结果文件。
+6. 程序按规则排序 `整合明细` Sheet。
+7. 程序清空并重建 `汇总` Sheet。
+8. 程序应用统一格式并写入最终结果文件。
 
 ## 明细处理规则
 
@@ -213,7 +214,7 @@ uv run python main.py
 | `米家` | `小米` |
 | `iQOO` | `vivo` |
 
-财务大类为`洗衣机`或`冰箱`时，品牌`美的`、`小天鹅`、`东芝`统一归并为`美的系`。该规则不影响其他财务大类。
+财务大类为 `洗衣机` 或 `冰箱` 时，品牌 `美的`、`小天鹅`、`东芝` 统一归并为 `美的系`。该规则不影响其他财务大类。
 
 已确认的裸型号映射：
 
@@ -249,6 +250,14 @@ uv run python main.py
 - 仍无法可靠识别时，品牌保留为空，不凭型号猜测。
 - 运行日志会报告推断成功数和最终未识别数。
 
+## 整合明细排序规则
+
+- 品牌推断完成后、汇总生成前，程序会对 `整合明细` 数据行排序。
+- 排序字段顺序固定为：`财务大类` → `品牌` → `交易时间` → `商品名称`。
+- `财务大类` 按当前数据类型的财务大类映射顺序排序；其他字段按单元格值升序排序。
+- 标题行固定保留在第 1 行，排序仅作用于第 2 行及之后的数据行。
+- 排序后的 `整合明细` 作为后续 `汇总` Sheet 的数据来源。
+
 ## 汇总表规则
 
 - 按 `财务大类` 和 `品牌` 分组。
@@ -278,6 +287,11 @@ uv run python main.py
 - 项目统一使用 `uv run python main.py` 运行。
 
 ## 变更记录
+
+### 2026-07-02
+
+- 明确财务大类为 `洗衣机` 或 `冰箱` 时，品牌 `美的`、`小天鹅`、`东芝` 统一归并为 `美的系`。
+- 增加 `整合明细` 排序规则：`财务大类` → `品牌` → `交易时间` → `商品名称`。
 
 ### 2026-06-30
 
